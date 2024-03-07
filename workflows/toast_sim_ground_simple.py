@@ -24,6 +24,10 @@ from astropy import units as u
 import toast
 from toast.mpi import MPI
 
+import toast.io
+import toast.schedule
+import toast.ops
+
 
 def main():
     env = toast.utils.Environment.get()
@@ -43,6 +47,21 @@ def main():
         "--schedule", required=True, default=None, help="Input observing schedule"
     )
 
+    parser.add_argument(
+        "--thinfp",
+        required=False,
+        default=1,
+        help="Focalplane thinning factor",
+        type=int,
+    )
+
+    parser.add_argument(
+        "--weather",
+        required=False,
+        default="south_pole",
+        help="Built-in weather site ('atacama', 'south_pole')",
+    )
+
     args = parser.parse_args()
 
     # Create our output directory
@@ -52,7 +71,7 @@ def main():
             os.makedirs(out_dir)
 
     # Load a generic focalplane file.
-    focalplane = toast.instrument.Focalplane()
+    focalplane = toast.instrument.Focalplane(thinfp=args.thinfp)
     with toast.io.H5File(args.focalplane, "r", comm=comm, force_serial=True) as f:
         focalplane.load_hdf5(f.handle, comm=comm)
 
@@ -67,7 +86,7 @@ def main():
         schedule.site_lat,
         schedule.site_lon,
         schedule.site_alt,
-        weather=None,
+        weather=args.weather,
     )
     telescope = toast.instrument.Telescope(
         schedule.telescope_name, focalplane=focalplane, site=site
@@ -113,7 +132,7 @@ def main():
 
     # Set up the pointing matrix.  We will use the same pointing matrix for the
     # template solve and the final binning.
-    pointing = toast.ops.PointingHealpix(
+    pointing = toast.ops.StokesWeights(
         nside=2048, mode="IQU", detector_pointing=det_pointing_radec
     )
 
