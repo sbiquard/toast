@@ -31,6 +31,8 @@ def sim_noise_timestream(
     freq=None,
     psd=None,
     py=False,
+    enforce_band=False,
+    half_bandwidth=None,
 ):
     """Generate a noise timestream, given a starting RNG state.
 
@@ -75,7 +77,7 @@ def sim_noise_timestream(
 
     """
     tdata = AlignedF64(samples)
-    if py:
+    if py or enforce_band:
         fftlen = 2
         while fftlen <= (oversample * samples):
             fftlen *= 2
@@ -129,11 +131,18 @@ def sim_noise_timestream(
         loginterp_psd = interp(loginterp_freq)
         interp_psd = np.power(10.0, loginterp_psd) - psdshift
 
+        # Enforce band diagonality
+
+        if enforce_band:
+            invntt = compute_autocorr(np.reciprocal(interp_psd), half_bandwidth)
+            band_psd = np.reciprocal(compute_psd_eff(invntt, fftlen))
+            scale = np.sqrt(band_psd * norm)
+        else:
+            scale = np.sqrt(interp_psd * norm)
+
         # Zero out DC value
 
-        interp_psd[0] = 0.0
-
-        scale = np.sqrt(interp_psd * norm)
+        scale[0] = 0.0
 
         # gaussian Re/Im randoms, packed into a complex valued array
 
@@ -188,7 +197,6 @@ def sim_noise_timestream(
         return tdata
 
 
-@trait_docs
 class SimNoise(Operator):
     """Operator which generates noise timestreams.
 
@@ -227,6 +235,16 @@ class SimNoise(Operator):
 
     serial = Bool(True, help="Use legacy serial implementation instead of batched")
 
+    enforce_band = Bool(
+        False,
+        help="Modify PSD on the fly to enforce band diagonality of the noise covariance matrix",
+    )
+
+    half_bandwidth = Int(
+        64,
+        help="Half bandwidth of the noise covariance matrix (only used when `enforce_band` is True)",
+    )
+
     @traitlets.validate("realization")
     def _check_realization(self, proposal):
         check = proposal["value"]
@@ -244,6 +262,9 @@ class SimNoise(Operator):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._oversample = 2
+        if self.enforce_band:
+            # batch mode not implemented for this option
+            self.serial = True
 
     @function_timer
     def _exec(self, data, detectors=None, **kwargs):
@@ -302,7 +323,7 @@ class SimNoise(Operator):
                 # Original serial implementation (for testing / comparison)
                 for key in nse.all_keys_for_dets(dets):
                     # Simulate the noise matching this key
-                    nsedata = sim_noise_timestream(
+                    nsedata, *_ = sim_noise_timestream(
                         realization=self.realization,
                         telescope=telescope,
                         component=self.component,
@@ -315,6 +336,8 @@ class SimNoise(Operator):
                         freq=nse.freq(key).to_value(u.Hz),
                         psd=nse.psd(key).to_value(sim_units),
                         py=False,
+                        enforce_band=self.enforce_band,
+                        half_bandwidth=self.half_bandwidth,
                     )
 
                     # Add the noise to all detectors that have nonzero weights
@@ -428,3 +451,63 @@ class SimNoise(Operator):
                 self.det_data,
             ]
         }
+
+
+def compute_psd_eff(tt, m):
+    """
+    Computes the power spectral density from a given autocorrelation function.
+
+    :param tt: Input autocorrelation
+    :param m: FFT size
+
+    :return: The PSD (size = m // 2 + 1 beacuse we are using np.fft.rfft)
+    """
+    # Form the cylic autocorrelation
+    lag = len(tt)
+    circ_t = np.pad(tt, (0, m - lag), "constant")
+    if lag > 1:
+        circ_t[-lag + 1 :] = np.flip(tt[1:], 0)
+
+    # FFT
+    psd = np.fft.rfft(circ_t, n=m)
+
+    return np.real(psd)
+
+
+def apo_window(lambd: int, kind="chebwin"):
+    from scipy.signal import get_window
+
+    if kind == "gaussian":
+        q_apo = (
+            3  # Apodization factor: cut happens at q_apo * sigma in the Gaussian window
+        )
+        window = get_window(("general_gaussian", 1, 1 / q_apo * lambd), 2 * lambd)
+    elif kind == "chebwin":
+        # https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.windows.chebwin.html#scipy.signal.windows.chebwin
+        at = 150
+        window = get_window(("chebwin", at), 2 * lambd)
+    else:
+        raise RuntimeError(f"Apodisation window '{kind}' is not supported.")
+
+    return np.fft.ifftshift(window)[:lambd]
+
+
+def compute_autocorr(psd, lambd: int, apo=True):
+    """
+    Computes the autocorrelation function from a given power spectral density.
+
+    :param psd: Input PSD
+    :param lambd: Assumed noise correlation length
+    :param apo: if True, apodize the autocorrelation function
+
+    :return: The autocorrelation function apodised and cut after `lambd` terms
+    """
+
+    # Compute the inverse FFT
+    autocorr = np.fft.irfft(psd)[:lambd]
+
+    # Apodisation
+    if apo:
+        return np.multiply(apo_window(lambd), autocorr)
+    else:
+        return autocorr
