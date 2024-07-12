@@ -9,7 +9,7 @@ import traitlets
 from .. import rng
 from ..observation import default_values as defaults
 from ..timing import function_timer
-from ..traits import Bool, Float, Int, Unicode, trait_docs
+from ..traits import Bool, Float, Int, Unicode, List, trait_docs
 from ..utils import Logger
 from .operator import Operator
 
@@ -26,8 +26,10 @@ class GainScrambler(Operator):
 
     API = Int(0, help="Internal interface version for this operator")
 
-    det_data = Unicode(
-        defaults.det_data, help="Observation detdata key to apply the gain error to"
+    det_data_names = List(
+        trait=Unicode,
+        default_value=[defaults.det_data],
+        help="Observation detdata key(s) to apply the gain error to",
     )
 
     pattern = Unicode(
@@ -36,6 +38,7 @@ class GainScrambler(Operator):
         help="Regex pattern to match against detector names. Only detectors that "
         "match the pattern are scrambled.",
     )
+
     center = Float(1, allow_none=False, help="Gain distribution center")
 
     sigma = Float(1e-3, allow_none=False, help="Gain distribution width")
@@ -85,7 +88,9 @@ class GainScrambler(Operator):
             counter1 = 0
             counter2 = 0
 
-            dets_present = set(obs.detdata[self.det_data].detectors)
+            dets_present = {
+                name: set(obs.detdata[name].detectors) for name in self.det_data_names
+            }
 
             # Process by pairs
             if self.process_pairs:
@@ -119,9 +124,10 @@ class GainScrambler(Operator):
                     gain_a = self.center + 0.5 * rngdata[0] * self.sigma
                     gain_b = self.center - 0.5 * rngdata[0] * self.sigma
 
-                if set((det_a, det_b)).issubset(dets_present):
-                    obs.detdata[self.det_data][det_a] *= gain_a
-                    obs.detdata[self.det_data][det_b] *= gain_b
+                for name, det_set in dets_present.items():
+                    if set((det_a, det_b)).issubset(det_set):
+                        obs.detdata[name][det_a] *= gain_a
+                        obs.detdata[name][det_b] *= gain_b
 
                 continue
 
@@ -142,8 +148,10 @@ class GainScrambler(Operator):
                 )
 
                 gain = self.center + rngdata[0] * self.sigma
-                if det in dets_present:
-                    obs.detdata[self.det_data][det] *= gain
+
+                for name, det_set in dets_present.items():
+                    if det in det_set:
+                        obs.detdata[name][det] *= gain
 
         return
 
@@ -154,7 +162,7 @@ class GainScrambler(Operator):
         req = {
             "meta": list(),
             "shared": list(),
-            "detdata": [self.det_data],
+            "detdata": self.det_data_names,
             "intervals": list(),
         }
         return req
