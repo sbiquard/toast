@@ -9,7 +9,7 @@ import traitlets
 from .. import rng
 from ..observation import default_values as defaults
 from ..timing import function_timer
-from ..traits import Float, Int, Unicode, trait_docs
+from ..traits import Bool, Float, Int, Unicode, trait_docs
 from ..utils import Logger
 from .operator import Operator
 
@@ -43,6 +43,14 @@ class GainScrambler(Operator):
     realization = Int(0, allow_none=False, help="Realization index")
 
     component = Int(0, allow_none=False, help="Component index for this simulation")
+
+    process_pairs = Bool(False, allow_none=False, help="Process detectors in pairs")
+
+    constant = Bool(
+        False,
+        allow_none=False,
+        help="If True, scramble all detector pairs in the same way",
+    )
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -79,6 +87,45 @@ class GainScrambler(Operator):
 
             dets_present = set(obs.detdata[self.det_data].detectors)
 
+            # Process by pairs
+            if self.process_pairs:
+                for det_a, det_b in pairwise(dets):
+                    # Warn if the detectors don't look like a pair
+                    if not det_b.startswith(det_a.removesuffix("A")):
+                        log.warning_rank(
+                            f"Detectors ({det_a=}, {det_b=}) don't look like a pair"
+                        )
+
+                    # Test the detector pattern
+                    if pat is not None and (
+                        pat.match(det_a) is None or pat.match(det_b) is None
+                    ):
+                        continue
+
+                    detindx = focalplane[det_a]["uid"]
+                    counter1 = detindx
+
+                    if self.constant:
+                        rngdata = [1.0]
+                    else:
+                        rngdata = rng.random(
+                            1,
+                            sampler="gaussian",
+                            key=(key1, key2),
+                            counter=(counter1, counter2),
+                        )
+
+                    # Apply symmetric gains to detectors A and B
+                    gain_a = self.center + 0.5 * rngdata[0] * self.sigma
+                    gain_b = self.center - 0.5 * rngdata[0] * self.sigma
+
+                if set((det_a, det_b)).issubset(dets_present):
+                    obs.detdata[self.det_data][det_a] *= gain_a
+                    obs.detdata[self.det_data][det_b] *= gain_b
+
+                continue
+
+            # Standard processing
             for det in dets:
                 # Test the detector pattern
                 if pat is not None and pat.match(det) is None:
@@ -119,3 +166,9 @@ class GainScrambler(Operator):
             "detdata": list(),
         }
         return prov
+
+
+def pairwise(iterable):
+    """s -> (s0,s1), (s2,s3), (s4, s5), ..."""
+    a = iter(iterable)
+    return zip(a, a)
