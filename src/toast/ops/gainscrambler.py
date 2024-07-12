@@ -39,9 +39,11 @@ class GainScrambler(Operator):
         "match the pattern are scrambled.",
     )
 
-    center = Float(1, allow_none=False, help="Gain distribution center")
+    dist = Unicode("gaussian", allow_none=False, help="Gain distribution density")
 
-    sigma = Float(1e-3, allow_none=False, help="Gain distribution width")
+    location = Float(1, allow_none=False, help="Distribution location parameter")
+
+    scale = Float(1e-3, allow_none=False, help="Distribution scale parameter")
 
     realization = Int(0, allow_none=False, help="Realization index")
 
@@ -54,6 +56,16 @@ class GainScrambler(Operator):
         allow_none=False,
         help="If True, scramble all detector pairs in the same way",
     )
+
+    @traitlets.validate("det_mask")
+    def _check_dist(self, proposal):
+        check = proposal["value"]
+        valid = ["gaussian", "cauchy"]
+        if check not in valid:
+            raise traitlets.TraitError(
+                "Invalid choice for trait 'dist' (must be one of {valid})"
+            )
+        return check
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -111,18 +123,13 @@ class GainScrambler(Operator):
                     counter1 = detindx
 
                     if self.constant:
-                        rngdata = [1.0]
+                        sample = 1.0
                     else:
-                        rngdata = rng.random(
-                            1,
-                            sampler="gaussian",
-                            key=(key1, key2),
-                            counter=(counter1, counter2),
-                        )
+                        sample = self._random_sample(key1, key2, counter1, counter2)
 
                     # Apply symmetric gains to detectors A and B
-                    gain_a = self.center + 0.5 * rngdata[0] * self.sigma
-                    gain_b = self.center - 0.5 * rngdata[0] * self.sigma
+                    gain_a = self.loc + 0.5 * sample * self.scale
+                    gain_b = self.loc - 0.5 * sample * self.scale
 
                 for name, det_set in dets_present.items():
                     if set((det_a, det_b)).issubset(det_set):
@@ -140,20 +147,26 @@ class GainScrambler(Operator):
                 detindx = focalplane[det]["uid"]
                 counter1 = detindx
 
-                rngdata = rng.random(
-                    1,
-                    sampler="gaussian",
-                    key=(key1, key2),
-                    counter=(counter1, counter2),
-                )
-
-                gain = self.center + rngdata[0] * self.sigma
+                sample = self._random_sample(key1, key2, counter1, counter2)
+                gain = self.loc + sample * self.scale
 
                 for name, det_set in dets_present.items():
                     if det in det_set:
                         obs.detdata[name][det] *= gain
 
         return
+
+    def _random_sample(self, key1, key2, counter1, counter2):
+        kc = {"key": (key1, key2), "counter": (counter1, counter2)}
+        if self.dist == "gaussian":
+            rngdata = rng.random(1, sampler="gaussian", **kc)
+            return rngdata[0]
+        if self.dist == "cauchy":
+            from numpy import tan, pi
+
+            rngdata = rng.random(1, sampler="uniform01", **kc)
+            cauchy = tan(pi * (rngdata - 0.5))
+            return cauchy[0]
 
     def _finalize(self, data, **kwargs):
         return
