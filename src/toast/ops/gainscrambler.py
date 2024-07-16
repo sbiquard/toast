@@ -49,6 +49,8 @@ class GainScrambler(Operator):
 
     component = Int(0, allow_none=False, help="Component index for this simulation")
 
+    store = Bool(False, allow_none=False, help="Store the scrambled values")
+
     process_pairs = Bool(False, allow_none=False, help="Process detectors in pairs")
 
     constant = Bool(
@@ -104,6 +106,9 @@ class GainScrambler(Operator):
                 name: set(obs.detdata[name].detectors) for name in self.det_data_names
             }
 
+            if self.store:
+                obs.scrambled_gains = {}
+
             # Process by pairs
             if self.process_pairs:
                 for det_a, det_b in pairwise(dets):
@@ -131,10 +136,15 @@ class GainScrambler(Operator):
                     gain_a = self.loc + 0.5 * sample * self.scale
                     gain_b = self.loc - 0.5 * sample * self.scale
 
-                for name, det_set in dets_present.items():
-                    if set((det_a, det_b)).issubset(det_set):
+                    for name, det_set in dets_present.items():
+                        if not set((det_a, det_b)).issubset(det_set):
+                            continue
+
                         obs.detdata[name][det_a] *= gain_a
                         obs.detdata[name][det_b] *= gain_b
+
+                        if self.store:
+                            obs.scrambled_gains.update({det_a: gain_a, det_b: gain_b})
 
                 continue
 
@@ -151,8 +161,14 @@ class GainScrambler(Operator):
                 gain = self.loc + sample * self.scale
 
                 for name, det_set in dets_present.items():
-                    if det in det_set:
-                        obs.detdata[name][det] *= gain
+                    if not det in det_set:
+                        continue
+
+                    obs.detdata[name][det] *= gain
+
+                    if self.store:
+                        # save the applied gains
+                        obs.scrambled_gains[det] = gain
 
         return
 
