@@ -1,7 +1,8 @@
-# Copyright (c) 2015-2020 by the parties listed in the AUTHORS file.
+# Copyright (c) 2015-2024 by the parties listed in the AUTHORS file.
 # All rights reserved.  Use of this source code is governed by
 # a BSD-style license that can be found in the LICENSE file.
 
+import astropy.units as u
 import numpy as np
 import traitlets
 
@@ -9,7 +10,7 @@ from ... import qarray as qa
 from ...accelerator import ImplementationType
 from ...observation import default_values as defaults
 from ...timing import function_timer
-from ...traits import Bool, Int, Unicode, UseEnum, trait_docs
+from ...traits import Bool, Int, Quantity, Unicode, UseEnum, trait_docs
 from ...utils import Logger
 from ..operator import Operator
 from .kernels import pointing_detector
@@ -44,6 +45,21 @@ class PointingDetectorSimple(Operator):
 
     boresight = Unicode(
         defaults.boresight_radec, help="Observation shared key for boresight"
+    )
+
+    hwp_angle = Unicode(
+        defaults.hwp_angle, allow_none=True, help="Observation shared key for HWP angle"
+    )
+
+    hwp_angle_offset = Quantity(
+        0 * u.deg, help="HWP angle offset to apply when constructing deflection"
+    )
+
+    hwp_deflection_radius = Quantity(
+        None,
+        allow_none=True,
+        help="If non-zero, nominal detector pointing will be deflected in a circular "
+        "pattern according to HWP phase.",
     )
 
     quats = Unicode(
@@ -214,9 +230,53 @@ class PointingDetectorSimple(Operator):
                 comm=data.comm.comm_group,
             )
 
+            # Optionally apply HWP deflection.  This is effectively a deflection
+            # of the boresight prior to the rotation by the detector quaternion.
+            if (
+                self.hwp_deflection_radius is not None
+                and self.hwp_deflection_radius.value != 0
+            ):
+                if use_accel:
+                    # The data objects are on an accelerator.  Raise an exception
+                    # until we can move this code into the kernel.
+                    raise NotImplementedError("HWP deflection only works on CPU")
+                # Copy node-shared object so that we can modify it.  Starting point
+                # is the HWP fast axis.
+                deflection_orientation = np.array(ob.shared[self.hwp_angle].data)
+
+                # Apply any phase offset from the fast axis.
+                deflection_orientation += self.hwp_angle_offset.to_value(u.rad)
+
+                # The orientation of the deflection is 90 degrees from
+                # the axis of rotation going from the boresight to the deflected
+                # boresight.
+                deflection_orientation += np.pi / 2
+
+                # The rotation axis of the deflection
+                deflection_axis = np.zeros(
+                    3 * len(deflection_orientation),
+                    dtype=np.float64,
+                ).reshape((len(deflection_orientation), 3))
+                deflection_axis[:, 0] = np.cos(deflection_orientation)
+                deflection_axis[:, 1] = np.sin(deflection_orientation)
+
+                # Angle of deflection
+                deflection_angle = self.hwp_deflection_radius.to_value(u.radian)
+
+                # Deflection quaternion
+                deflection = qa.rotation(
+                    deflection_axis,
+                    deflection_angle,
+                )
+
+                # Apply deflection to the boresight
+                boresight = qa.mult(ob.shared[bore_name].data, deflection)
+            else:
+                boresight = ob.shared[bore_name].data
+
             pointing_detector(
                 fp_quats,
-                ob.shared[bore_name].data,
+                boresight,
                 quat_indx,
                 ob.detdata[self.quats].data,
                 ob.intervals[self.view].data,
