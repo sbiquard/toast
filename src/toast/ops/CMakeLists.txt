@@ -28,6 +28,7 @@ install(FILES
     signal_diff_noise_model.py
     gainscrambler.py
     pointing.py
+    interpolate_healpix.py
     scan_healpix.py
     scan_wcs.py
     mapmaker_binning.py
@@ -42,6 +43,7 @@ install(FILES
     totalconvolve.py
     groundfilter.py
     hwpfilter.py
+    hwpss_model.py
     statistics.py
     sim_cosmic_rays.py
     time_constant.py

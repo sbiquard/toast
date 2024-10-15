@@ -42,6 +42,7 @@ install(FILES
     ops_pointing_wcs.py
     ops_memory_counter.py
     ops_scan_map.py
+    ops_interpolate_healpix.py
     ops_scan_healpix.py
     ops_scan_wcs.py
     ops_madam.py
@@ -58,6 +59,7 @@ install(FILES
     ops_polyfilter.py
     ops_groundfilter.py
     ops_hwpfilter.py
+    ops_hwpss_model.py
     ops_sim_cosmic_rays.py
     ops_time_constant.py
     spt3g.py
@@ -74,6 +76,7 @@ install(FILES
     ops_yield_cut.py
     ops_elevation_noise.py
     ops_signal_diff_noise.py
+    ops_loader.py
     accelerator.py
     DESTINATION ${PYTHON_SITE}/toast/tests
 )
