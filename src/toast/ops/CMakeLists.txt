@@ -66,6 +66,7 @@ install(FILES
     yield_cut.py
     azimuth_intervals.py
     calibrate.py
+    variable_noise_model.py
     DESTINATION ${PYTHON_SITE}/toast/ops
 )
 
