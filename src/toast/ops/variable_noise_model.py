@@ -3,7 +3,7 @@ import traitlets
 from .. import rng
 from ..noise_sim import AnalyticNoise
 from ..timing import function_timer
-from ..traits import Float, Int, Unicode
+from ..traits import Bool, Float, Int, Unicode
 from ..utils import Logger
 from .operator import Operator
 
@@ -18,6 +18,7 @@ class VariableNoiseModel(Operator):
     )
     scatter = Float(0.1, help="Fractional scatter in the noise parameters")
     realization = Int(0, help="The model realization index")
+    use_white = Bool(False, help="Use white noise instead of 1/f")
 
     @traitlets.validate("realization")
     def _check_realization(self, proposal):
@@ -75,11 +76,15 @@ class VariableNoiseModel(Operator):
                     continue
                 dets.append(name)
                 rates[name] = ob.telescope.focalplane.sample_rate
-                rngdata = rng.random(4, sampler="gaussian", key=(key1, detindx))
-                fmin[name] = row["psd_fmin"] * (1 + self.scatter * rngdata[0])
-                fknee[name] = row["psd_fknee"] * (1 + self.scatter * rngdata[1])
-                alpha[name] = row["psd_alpha"] * (1 + self.scatter * rngdata[2])
-                NET[name] = row["psd_net"] * (1 + self.scatter * rngdata[3])
+                rngdata = rng.random(3, sampler="gaussian", key=(key1, detindx))
+                fmin[name] = row["psd_fmin"]
+                if self.use_white:
+                    fknee[name] = 0
+                    alpha[name] = 0
+                else:
+                    fknee[name] = row["psd_fknee"] * (1 + self.scatter * rngdata[0])
+                    alpha[name] = row["psd_alpha"] * (1 + self.scatter * rngdata[1])
+                NET[name] = row["psd_net"] * (1 + self.scatter * rngdata[2])
                 indices[name] = detindx
 
             ob[self.noise_model] = AnalyticNoise(
