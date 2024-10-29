@@ -71,5 +71,6 @@ from .statistics import Statistics
 from .stokes_weights import StokesWeights
 from .time_constant import TimeConstant
 from .totalconvolve import SimTotalconvolve
+from .variable_noise_model import VariableNoiseModel
 from .weather_model import WeatherModel
 from .yield_cut import YieldCut
