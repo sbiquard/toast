@@ -1,3 +1,4 @@
+import numpy as np
 import traitlets
 
 from .. import rng
@@ -16,14 +17,13 @@ class VariableNoiseModel(Operator):
     noise_model = Unicode(
         "var_noise_model", help="The observation key for storing the noise model"
     )
-    pairs = Bool(True, help="Process detectors by pairs instead of individually")
+    pairs = Bool(False, help="Process detectors by pairs instead of individually")
     scatter = Float(0.1, help="Fractional scatter in the noise parameters")
     realization = Int(0, help="The model realization index")
     use_white = Bool(False, help="Use white noise instead of 1/f")
-    vary = Bool(True, help="Vary the noise parameters from detector to detector")
-
-    # if `vary` is True then `pairs` does not matter
-    # if `vary` is False and `pairs` is True then all pairs are the same (but not detectors inside pairs)
+    uniform = Bool(
+        False, help="Do not vary the noise parameters from detector to detector"
+    )
 
     @traitlets.validate("realization")
     def _check_realization(self, proposal):
@@ -74,35 +74,38 @@ class VariableNoiseModel(Operator):
                 + int(sindx)
             )
 
-            def _process_row(row, key2=None):
+            def _process_row(row, second=False):
                 name = row["name"]
                 detindx = row["uid"]
                 if name not in local_dets:
                     return
                 dets.append(name)
                 rates[name] = ob.telescope.focalplane.sample_rate
-                key2 = key2 if key2 is not None else detindx
-                rngdata = rng.random(3, sampler="gaussian", key=(key1, key2))
+                if self.uniform:
+                    coeff = np.ones(3) / np.sqrt(2)
+                    if second:
+                        coeff = -coeff
+                else:
+                    coeff = rng.random(3, sampler="gaussian", key=(key1, detindx))
                 fmin[name] = row["psd_fmin"]
                 if self.use_white:
                     fknee[name] = 0
                     alpha[name] = 0
                 else:
-                    fknee[name] = row["psd_fknee"] * (1 + self.scatter * rngdata[0])
-                    alpha[name] = row["psd_alpha"] * (1 + self.scatter * rngdata[1])
-                NET[name] = row["psd_net"] * (1 + self.scatter * rngdata[2])
+                    fknee[name] = row["psd_fknee"] * (1 + self.scatter * coeff[0])
+                    alpha[name] = row["psd_alpha"] * (1 + self.scatter * coeff[1])
+                NET[name] = row["psd_net"] * (1 + self.scatter * coeff[2])
                 indices[name] = detindx
 
-            k2 = None if self.vary else 0
             if self.pairs:
                 # iterate over pairs of detectors
                 for row1, row2 in pairwise(fp_data):
-                    _process_row(row1, key2=k2)
-                    _process_row(row2, key2=k2)
+                    _process_row(row1)
+                    _process_row(row2, second=True)
             else:
                 # iterate over single detectors
                 for row in fp_data:
-                    _process_row(row, key2=k2)
+                    _process_row(row)
 
             ob[self.noise_model] = AnalyticNoise(
                 rate=rates,
