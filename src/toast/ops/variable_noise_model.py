@@ -1,3 +1,4 @@
+from astropy import units as u
 import numpy as np
 import traitlets
 
@@ -89,8 +90,8 @@ class VariableNoiseModel(Operator):
                     coeff = rng.random(3, sampler="gaussian", key=(key1, detindx))
                 fmin[name] = row["psd_fmin"]
                 if self.use_white:
-                    fknee[name] = 0
-                    alpha[name] = 0
+                    fknee[name] = u.Quantity(0.0, u.Hz)
+                    alpha[name] = 0.0
                 else:
                     fknee[name] = row["psd_fknee"] * (1 + self.scatter * coeff[0])
                     alpha[name] = row["psd_alpha"] * (1 + self.scatter * coeff[1])
