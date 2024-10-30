@@ -16,9 +16,14 @@ class VariableNoiseModel(Operator):
     noise_model = Unicode(
         "var_noise_model", help="The observation key for storing the noise model"
     )
+    pairs = Bool(True, help="Process detectors by pairs instead of individually")
     scatter = Float(0.1, help="Fractional scatter in the noise parameters")
     realization = Int(0, help="The model realization index")
     use_white = Bool(False, help="Use white noise instead of 1/f")
+    vary = Bool(True, help="Vary the noise parameters from detector to detector")
+
+    # if `vary` is True then `pairs` does not matter
+    # if `vary` is False and `pairs` is True then all pairs are the same (but not detectors inside pairs)
 
     @traitlets.validate("realization")
     def _check_realization(self, proposal):
@@ -69,14 +74,15 @@ class VariableNoiseModel(Operator):
                 + int(sindx)
             )
 
-            for row in fp_data:
+            def _process_row(row, key2=None):
                 name = row["name"]
                 detindx = row["uid"]
                 if name not in local_dets:
-                    continue
+                    return
                 dets.append(name)
                 rates[name] = ob.telescope.focalplane.sample_rate
-                rngdata = rng.random(3, sampler="gaussian", key=(key1, detindx))
+                key2 = key2 if key2 is not None else detindx
+                rngdata = rng.random(3, sampler="gaussian", key=(key1, key2))
                 fmin[name] = row["psd_fmin"]
                 if self.use_white:
                     fknee[name] = 0
@@ -86,6 +92,17 @@ class VariableNoiseModel(Operator):
                     alpha[name] = row["psd_alpha"] * (1 + self.scatter * rngdata[1])
                 NET[name] = row["psd_net"] * (1 + self.scatter * rngdata[2])
                 indices[name] = detindx
+
+            k2 = None if self.vary else 0
+            if self.pairs:
+                # iterate over pairs of detectors
+                for row1, row2 in pairwise(fp_data):
+                    _process_row(row1, key2=k2)
+                    _process_row(row2, key2=k2)
+            else:
+                # iterate over single detectors
+                for row in fp_data:
+                    _process_row(row, key2=k2)
 
             ob[self.noise_model] = AnalyticNoise(
                 rate=rates,
@@ -106,3 +123,9 @@ class VariableNoiseModel(Operator):
     def _provides(self):
         prov = {"meta": [self.noise_model]}
         return prov
+
+
+def pairwise(iterable):
+    """Iterate over pairs of elements in an iterable."""
+    a = iter(iterable)
+    return zip(a, a)
