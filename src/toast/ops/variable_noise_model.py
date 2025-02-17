@@ -1,3 +1,4 @@
+import numpy as np
 import traitlets
 from astropy import units as u
 
@@ -98,7 +99,7 @@ class VariableNoiseModel(Operator):
                 # Draw three random values
                 # Using only the uid of the first row
                 detindx = row['uid']
-                rngdata = rng.random(3, sampler='gaussian', key=(key1, detindx))
+                rngdata = np.array(rng.random(3, sampler='gaussian', key=(key1, detindx)))
 
                 # Populate the noise model
                 names = [row['name']] if row_b is None else [row['name'], row_b['name']]
