@@ -108,7 +108,8 @@ class VariableNoiseModel(Operator):
                 elif self.biased:
                     coeff_b = -rngdata
                 coeffs = [rngdata] if row_b is None else [rngdata, coeff_b]
-                for name, coeff in zip(names, coeffs):
+                detindxs = [detindx] if row_b is None else [detindx, row_b['uid']]
+                for name, coeff, indx in zip(names, coeffs, detindxs):
                     dets.append(name)
                     rates[name] = ob.telescope.focalplane.sample_rate
                     fmin[name] = row['psd_fmin']
@@ -119,7 +120,7 @@ class VariableNoiseModel(Operator):
                         fknee[name] = row['psd_fknee'] * (1 + self.scatter * coeff[0])
                         alpha[name] = row['psd_alpha'] * (1 + self.scatter * coeff[1])
                     NET[name] = row['psd_net'] * (1 + self.scatter * coeff[2])
-                    indices[name] = detindx
+                    indices[name] = indx
 
             if self.pairs or self.biased:
                 # iterate over pairs of detectors
