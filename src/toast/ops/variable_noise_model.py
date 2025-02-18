@@ -8,6 +8,7 @@ from ..timing import function_timer
 from ..traits import Bool, Float, Int, Unicode
 from ..utils import Logger
 from .operator import Operator
+from .save_hdf5 import SaveHDF5
 
 
 class VariableNoiseModel(Operator):
@@ -34,6 +35,8 @@ class VariableNoiseModel(Operator):
     noise_model = Unicode('var_noise_model', help='The observation key for storing the noise model')
     pairs = Bool(False, help='Process detectors by pairs instead of individually')
     realization = Int(0, help='The model realization index')
+    save = Bool(False, help='Save the noise model to disk')
+    save_volume = Unicode('variable_noise_model_out', allow_none=True, help='Output directory')
     scatter = Float(0.1, help='Fractional scatter in the noise parameters')
     white = Bool(False, help='Generate a white noise model')
 
@@ -140,6 +143,12 @@ class VariableNoiseModel(Operator):
                 NET=NET,
                 indices=indices,
             )
+
+        if not self.save:
+            return
+
+        # Save the noise model
+        SaveHDF5(volume=self.save_volume, meta=[self.noise_model]).apply(data)
 
     def _finalize(self, data, **kwargs):
         return
