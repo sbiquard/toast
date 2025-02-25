@@ -4,6 +4,7 @@ from astropy import units as u
 
 from .. import rng
 from ..noise_sim import AnalyticNoise
+from ..observation import default_values as defaults
 from ..timing import function_timer
 from ..traits import Bool, Float, Int, Unicode
 from ..utils import Logger
@@ -147,8 +148,9 @@ class VariableNoiseModel(Operator):
         if not self.save:
             return
 
-        # Save the noise model
-        SaveHDF5(volume=self.save_volume, meta=[self.noise_model]).apply(data)
+        # Save minimal information to disk
+        # All noise models are saved by default
+        SaveHDF5(volume=self.save_volume, detdata=[], shared=[defaults.times]).apply(data)
 
     def _finalize(self, data, **kwargs):
         return
