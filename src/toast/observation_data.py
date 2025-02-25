@@ -1187,6 +1187,7 @@ class DetDataManager(MutableMapping):
     def clear(self):
         for k in self._internal.keys():
             self._internal[k].clear()
+        self._internal.clear()
 
     def __repr__(self):
         val = "<DetDataManager {} local detectors, {} samples".format(
