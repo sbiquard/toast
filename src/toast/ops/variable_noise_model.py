@@ -1,8 +1,8 @@
 import numpy as np
 import traitlets
 from astropy import units as u
+from scipy.stats import truncnorm
 
-from .. import rng
 from ..noise_sim import AnalyticNoise
 from ..observation import default_values as defaults
 from ..timing import function_timer
@@ -91,10 +91,6 @@ class VariableNoiseModel(Operator):
             rates = {}
             indices = {}
 
-            key1 = (
-                int(self.realization) * int(4294967296) + int(telescope) * int(65536) + int(sindx)
-            )
-
             def _process(row, row_b=None):
                 # Check if the detector is local to this process
                 if row['name'] not in local_dets:
@@ -103,7 +99,15 @@ class VariableNoiseModel(Operator):
                 # Draw three random values
                 # Using only the uid of the first row
                 detindx = row['uid']
-                rngdata = np.array(rng.random(3, sampler='gaussian', key=(key1, detindx)))
+                rng = np.random.default_rng(seed=(self.realization, telescope, sindx, detindx))
+
+                scale = self.scatter
+                if scale == 0:
+                    rngdata = np.zeros(3)
+                else:
+                    # truncate scatter between -1 and 1 to avoid problems
+                    rv = truncnorm(-1 / scale, 1 / scale, scale=scale)
+                    rngdata = rv.rvs(size=3, random_state=rng)
 
                 # Populate the noise model
                 names = [row['name']] if row_b is None else [row['name'], row_b['name']]
@@ -121,9 +125,9 @@ class VariableNoiseModel(Operator):
                         fknee[name] = u.Quantity(0.0, u.Hz)
                         alpha[name] = 0.0
                     else:
-                        fknee[name] = row['psd_fknee'] * (1 + self.scatter * coeff[0])
-                        alpha[name] = row['psd_alpha'] * (1 + self.scatter * coeff[1])
-                    NET[name] = row['psd_net'] * (1 + self.scatter * coeff[2])
+                        fknee[name] = row['psd_fknee'] * (1 + coeff[0])
+                        alpha[name] = row['psd_alpha'] * (1 + coeff[1])
+                    NET[name] = row['psd_net'] * (1 + coeff[2])
                     indices[name] = indx
 
             if self.pairs or self.biased:
