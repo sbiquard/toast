@@ -3,15 +3,20 @@
 # a BSD-style license that can be found in the LICENSE file.
 
 import re
-
-import traitlets
+from enum import Enum
 
 from .. import rng
 from ..observation import default_values as defaults
 from ..timing import function_timer
-from ..traits import Bool, Float, Int, Unicode, List, trait_docs
-from ..utils import Logger
+from ..traits import Bool, Float, Int, List, Unicode, UseEnum, trait_docs
 from .operator import Operator
+
+
+class Density(Enum):
+    """Gain distribution density."""
+
+    GAUSSIAN = 'gaussian'
+    CAUCHY = 'cauchy'
 
 
 @trait_docs
@@ -22,64 +27,26 @@ class GainScrambler(Operator):
     applies them to the specified detectors.
     """
 
-    # Class traits
-
-    API = Int(0, help="Internal interface version for this operator")
-
-    det_data_names = List(
-        trait=Unicode,
-        default_value=[defaults.det_data],
-        help="Observation detdata key(s) to apply the gain error to",
-    )
-
-    pattern = Unicode(
-        f".*",
-        allow_none=True,
-        help="Regex pattern to match against detector names. Only detectors that "
-        "match the pattern are scrambled.",
-    )
-
-    dist = Unicode("gaussian", allow_none=False, help="Gain distribution density")
-
-    location = Float(1, allow_none=False, help="Distribution location parameter")
-
-    scale = Float(1e-3, allow_none=False, help="Distribution scale parameter")
-
-    realization = Int(0, allow_none=False, help="Realization index")
-
-    component = Int(0, allow_none=False, help="Component index for this simulation")
-
-    store = Bool(False, allow_none=False, help="Store the scrambled values")
-
-    process_pairs = Bool(False, allow_none=False, help="Process detectors in pairs")
-
-    constant = Bool(
-        False,
-        allow_none=False,
-        help="If True, scramble all detector pairs in the same way",
-    )
-
-    @traitlets.validate("det_mask")
-    def _check_dist(self, proposal):
-        check = proposal["value"]
-        valid = ["gaussian", "cauchy"]
-        if check not in valid:
-            raise traitlets.TraitError(
-                "Invalid choice for trait 'dist' (must be one of {valid})"
-            )
-        return check
+    # fmt: off
+    API = Int(0, help='Internal interface version for this operator')
+    det_data_names = List(trait=Unicode, default_value=[defaults.det_data], help='Observation detdata key(s) to apply the gain error to')
+    pattern = Unicode('.*', allow_none=True, help='Regex pattern to match against detector names')
+    dist = UseEnum(Density, default_value=Density.GAUSSIAN,  help='Gain distribution density')
+    location = Float(1, help='Distribution location parameter')
+    scale = Float(1e-3, help='Distribution scale parameter')
+    realization = Int(0, help='Realization index')
+    component = Int(0, help='Component index for this simulation')
+    store = Bool(False, help='Store the scrambled values')
+    process_pairs = Bool(False, help='Process detectors in pairs')
+    constant = Bool(False, help='If True, scramble all detector pairs in the same way')
+    # fmt: on
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
     @function_timer
     def _exec(self, data, detectors=None, **kwargs):
-        log = Logger.get()
-
-        if self.pattern is None:
-            pat = None
-        else:
-            pat = re.compile(self.pattern)
+        pat = None if self.pattern is None else re.compile(self.pattern)
 
         for obs in data.obs:
             # Get the detectors we are using for this observation
@@ -87,9 +54,6 @@ class GainScrambler(Operator):
             if len(dets) == 0:
                 # Nothing to do for this observation
                 continue
-
-            comm = obs.comm.comm_group
-            rank = obs.comm.group_rank
 
             sindx = obs.session.uid
             telescope = obs.telescope.uid
@@ -102,35 +66,26 @@ class GainScrambler(Operator):
             counter1 = 0
             counter2 = 0
 
-            dets_present = {
-                name: set(obs.detdata[name].detectors) for name in self.det_data_names
-            }
+            dets_present = {name: set(obs.detdata[name].detectors) for name in self.det_data_names}
 
             if self.store:
                 obs.scrambled_gains = {}
 
             # Process by pairs
             if self.process_pairs:
-                for det_a, det_b in pairwise(dets):
-                    # Warn if the detectors don't look like a pair
-                    if not det_b.startswith(det_a.removesuffix("A")):
-                        log.warning_rank(
-                            f"Detectors ({det_a=}, {det_b=}) don't look like a pair"
-                        )
-
+                for det_a, det_b in _pairwise(dets):
                     # Test the detector pattern
-                    if pat is not None and (
-                        pat.match(det_a) is None or pat.match(det_b) is None
-                    ):
+                    if pat is not None and (pat.match(det_a) is None or pat.match(det_b) is None):
                         continue
 
-                    detindx = focalplane[det_a]["uid"]
+                    detindx = focalplane[det_a]['uid']
                     counter1 = detindx
 
-                    if self.constant:
-                        sample = 1.0
-                    else:
-                        sample = self._random_sample(key1, key2, counter1, counter2)
+                    sample = (
+                        1.0
+                        if self.constant
+                        else self._random_sample(key1, key2, counter1, counter2)
+                    )
 
                     # Apply symmetric gains to detectors A and B
                     gain_a = self.loc + 0.5 * sample * self.scale
@@ -154,14 +109,14 @@ class GainScrambler(Operator):
                 if pat is not None and pat.match(det) is None:
                     continue
 
-                detindx = focalplane[det]["uid"]
+                detindx = focalplane[det]['uid']
                 counter1 = detindx
 
                 sample = self._random_sample(key1, key2, counter1, counter2)
                 gain = self.loc + sample * self.scale
 
                 for name, det_set in dets_present.items():
-                    if not det in det_set:
+                    if det not in det_set:
                         continue
 
                     obs.detdata[name][det] *= gain
@@ -170,42 +125,42 @@ class GainScrambler(Operator):
                         # save the applied gains
                         obs.scrambled_gains[det] = gain
 
-        return
-
-    def _random_sample(self, key1, key2, counter1, counter2):
-        kc = {"key": (key1, key2), "counter": (counter1, counter2)}
-        if self.dist == "gaussian":
-            rngdata = rng.random(1, sampler="gaussian", **kc)
+    def _random_sample(self, key1, key2, counter1, counter2) -> float:
+        if self.dist == Density.GAUSSIAN:
+            rngdata = rng.random(
+                1, sampler='gaussian', key=(key1, key2), counter=(counter1, counter2)
+            )
             return rngdata[0]
-        if self.dist == "cauchy":
-            from numpy import tan, pi
+        if self.dist == Density.CAUCHY:
+            from numpy import pi, tan
 
-            rngdata = rng.random(1, sampler="uniform01", **kc)
+            rngdata = rng.random(
+                1, sampler='uniform01', key=(key1, key2), counter=(counter1, counter2)
+            )
             cauchy = tan(pi * (rngdata - 0.5))
             return cauchy[0]
+        raise NotImplementedError
 
     def _finalize(self, data, **kwargs):
         return
 
     def _requires(self):
-        req = {
-            "meta": list(),
-            "shared": list(),
-            "detdata": self.det_data_names,
-            "intervals": list(),
+        return {
+            'meta': list(),
+            'shared': list(),
+            'detdata': self.det_data_names,
+            'intervals': list(),
         }
-        return req
 
     def _provides(self):
-        prov = {
-            "meta": list(),
-            "shared": list(),
-            "detdata": list(),
+        return {
+            'meta': list(),
+            'shared': list(),
+            'detdata': list(),
         }
-        return prov
 
 
-def pairwise(iterable):
+def _pairwise(iterable):
     """s -> (s0,s1), (s2,s3), (s4, s5), ..."""
     a = iter(iterable)
     return zip(a, a)
