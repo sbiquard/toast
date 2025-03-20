@@ -3,7 +3,7 @@
 # a BSD-style license that can be found in the LICENSE file.
 
 import re
-from enum import Enum
+from enum import IntEnum
 
 from .. import rng
 from ..observation import default_values as defaults
@@ -12,11 +12,11 @@ from ..traits import Bool, Float, Int, List, Unicode, UseEnum, trait_docs
 from .operator import Operator
 
 
-class Density(Enum):
+class Density(IntEnum):
     """Gain distribution density."""
 
-    GAUSSIAN = 'gaussian'
-    CAUCHY = 'cauchy'
+    GAUSSIAN = 0
+    CAUCHY = 1
 
 
 @trait_docs
