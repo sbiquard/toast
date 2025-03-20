@@ -88,8 +88,8 @@ class GainScrambler(Operator):
                     )
 
                     # Apply symmetric gains to detectors A and B
-                    gain_a = self.loc + 0.5 * sample * self.scale
-                    gain_b = self.loc - 0.5 * sample * self.scale
+                    gain_a = self.location + 0.5 * sample * self.scale
+                    gain_b = self.location - 0.5 * sample * self.scale
 
                     for name, det_set in dets_present.items():
                         if not set((det_a, det_b)).issubset(det_set):
@@ -113,7 +113,7 @@ class GainScrambler(Operator):
                 counter1 = detindx
 
                 sample = self._random_sample(key1, key2, counter1, counter2)
-                gain = self.loc + sample * self.scale
+                gain = self.location + sample * self.scale
 
                 for name, det_set in dets_present.items():
                     if det not in det_set:
