@@ -8,9 +8,7 @@
 
 #ifdef HAVE_CHOLMOD
 
-extern "C" {
 # include <cholmod.h>
-}
 
 namespace toast {
 // This small singleton class is used to initialize and finalize the cholmod package.
