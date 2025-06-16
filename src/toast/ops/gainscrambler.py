@@ -5,10 +5,12 @@
 import re
 from enum import IntEnum
 
+import traitlets
+
 from .. import rng
 from ..observation import default_values as defaults
 from ..timing import function_timer
-from ..traits import Bool, Float, Int, List, Unicode, UseEnum, trait_docs
+from ..traits import Bool, Float, Int, List, Unicode, trait_docs
 from .operator import Operator
 
 
@@ -31,7 +33,7 @@ class GainScrambler(Operator):
     API = Int(0, help='Internal interface version for this operator')
     det_data_names = List(trait=Unicode, default_value=[defaults.det_data], help='Observation detdata key(s) to apply the gain error to')
     pattern = Unicode('.*', allow_none=True, help='Regex pattern to match against detector names')
-    dist = UseEnum(Density, default_value=Density.GAUSSIAN,  help='Gain distribution density')
+    distribution = Int(0, help='Gain distribution density (0=Gaussian, 1=Cauchy)')
     location = Float(1, help='Distribution location parameter')
     scale = Float(1e-3, help='Distribution scale parameter')
     realization = Int(0, help='Realization index')
@@ -40,6 +42,10 @@ class GainScrambler(Operator):
     process_pairs = Bool(False, help='Process detectors in pairs')
     constant = Bool(False, help='If True, scramble all detector pairs in the same way')
     # fmt: on
+
+    @traitlets.validate('distribution')
+    def _check_distribution(self, proposal):
+        return Density(proposal['value'])
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -126,12 +132,12 @@ class GainScrambler(Operator):
                         obs.scrambled_gains[det] = gain
 
     def _random_sample(self, key1, key2, counter1, counter2) -> float:
-        if self.dist == Density.GAUSSIAN:
+        if self.distribution == Density.GAUSSIAN:
             rngdata = rng.random(
                 1, sampler='gaussian', key=(key1, key2), counter=(counter1, counter2)
             )
             return rngdata[0]
-        if self.dist == Density.CAUCHY:
+        if self.distribution == Density.CAUCHY:
             from numpy import pi, tan
 
             rngdata = rng.random(
