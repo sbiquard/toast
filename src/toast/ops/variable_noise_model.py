@@ -40,6 +40,10 @@ class VariableNoiseModel(Operator):
     save_volume = Unicode('variable_noise_model_out', allow_none=True, help='Output directory')
     scatter = Float(0.1, help='Fractional scatter in the noise parameters')
     white = Bool(False, help='Generate a white noise model')
+    psd_fmin = Float(None, allow_none=True, help='Override nominal fmin value')
+    psd_fknee = Float(None, allow_none=True, help='Override nominal fknee value')
+    psd_alpha = Float(None, allow_none=True, help='Override nominal alpha value')
+    psd_net = Float(None, allow_none=True, help='Override nominal NET value')
 
     @traitlets.validate('realization')
     def _check_realization(self, proposal):
@@ -120,14 +124,25 @@ class VariableNoiseModel(Operator):
                 for name, coeff, indx in zip(names, coeffs, detindxs):
                     dets.append(name)
                     rates[name] = ob.telescope.focalplane.sample_rate
-                    fmin[name] = row['psd_fmin']
+                    if self.psd_fmin is not None:
+                        fmin[name] = u.Quantity(self.psd_fmin, u.Hz)
+                    else:
+                        fmin[name] = row['psd_fmin']
                     if self.white:
                         fknee[name] = u.Quantity(0.0, u.Hz)
                         alpha[name] = 0.0
                     else:
-                        fknee[name] = row['psd_fknee'] * (1 + coeff[0])
-                        alpha[name] = row['psd_alpha'] * (1 + coeff[1])
-                    NET[name] = row['psd_net'] * (1 + coeff[2])
+                        if self.psd_fknee is not None:
+                            fknee[name] = u.Quantity(self.psd_fknee, u.Hz)
+                        else:
+                            fknee[name] = row['psd_fknee']
+                        fknee[name] *= 1 + coeff[0]
+                        alpha[name] = (self.psd_alpha or row['psd_alpha']) * (1 + coeff[1])
+                    if self.psd_net is not None:
+                        NET[name] = u.Quantity(self.psd_net, u.K * np.sqrt(1 * u.second))
+                    else:
+                        NET[name] = row['psd_net']
+                    NET[name] *= 1 + coeff[2]
                     indices[name] = indx
 
             if self.pairs or self.biased:
