@@ -6,7 +6,7 @@ from scipy.stats import truncnorm
 from ..noise_sim import AnalyticNoise
 from ..observation import default_values as defaults
 from ..timing import function_timer
-from ..traits import Bool, Float, Int, Unicode
+from ..traits import Bool, Float, Int, Quantity, Unicode
 from ..utils import Logger
 from .operator import Operator
 from .save_hdf5 import SaveHDF5
@@ -40,6 +40,10 @@ class VariableNoiseModel(Operator):
     save_volume = Unicode('variable_noise_model_out', allow_none=True, help='Output directory')
     scatter = Float(0.1, help='Fractional scatter in the noise parameters')
     white = Bool(False, help='Generate a white noise model')
+    override_NET = Quantity(None, allow_none=True, help='Override focal plane NET value')
+    override_alpha = Float(None, allow_none=True, help='Override focal plane alpha value')
+    override_fknee = Quantity(None, allow_none=True, help='Override focal plane fknee value')
+    override_fmin = Quantity(None, allow_none=True, help='Override focal plane fmin value')
 
     @traitlets.validate('realization')
     def _check_realization(self, proposal):
@@ -120,14 +124,14 @@ class VariableNoiseModel(Operator):
                 for name, coeff, indx in zip(names, coeffs, detindxs):
                     dets.append(name)
                     rates[name] = ob.telescope.focalplane.sample_rate
-                    fmin[name] = row['psd_fmin']
+                    fmin[name] = if_not_none(self.override_fmin, row['psd_fmin'])
                     if self.white:
                         fknee[name] = u.Quantity(0.0, u.Hz)
                         alpha[name] = 0.0
                     else:
-                        fknee[name] = row['psd_fknee'] * (1 + coeff[0])
-                        alpha[name] = row['psd_alpha'] * (1 + coeff[1])
-                    NET[name] = row['psd_net'] * (1 + coeff[2])
+                        fknee[name] = if_not_none(self.override_fknee, row['psd_fknee']) * (1 + coeff[0])
+                        alpha[name] = if_not_none(self.override_alpha, row['psd_alpha']) * (1 + coeff[1])
+                    NET[name] = if_not_none(self.override_NET, row['psd_net']) * (1 + coeff[2])
                     indices[name] = indx
 
             if self.pairs or self.biased:
@@ -171,3 +175,6 @@ def pairwise(iterable):
     """Iterate over pairs of elements in an iterable."""
     a = iter(iterable)
     return zip(a, a, strict=True)
+
+def if_not_none(x, default):
+    return default if x is None else x
